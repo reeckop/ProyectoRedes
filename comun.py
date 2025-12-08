@@ -5,7 +5,6 @@ from datetime import datetime
 # --- CONFIGURACION GLOBAL ---
 # Cambia esto a socket.SOCK_DGRAM para UDP o socket.SOCK_STREAM para TCP
 PROTOCOLO = socket.SOCK_STREAM 
-# PROTOCOLO = socket.SOCK_DGRAM
 
 # 0.0.0.0 significa "Escuchar en todas las interfaces de red de esta PC"
 HOST = '0.0.0.0'

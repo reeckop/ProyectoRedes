@@ -8,7 +8,7 @@ import threading
 import queue
 import time
 
-# --- PALETA DE COLORES (MODERNA) ---
+# Paleta de colores, no le muevan :p
 COLOR_FONDO = "#1E1E1E"       # Negro oscuro
 COLOR_TEXTO = "#FFFFFF"       # Blanco puro
 COLOR_SUBTITULO = "#AAAAAA"   # Gris
@@ -19,13 +19,14 @@ COLOR_ACCENT_TCP = "#007ACC"  # Azul VS Code
 COLOR_BTN_ON = "#238636"      # Verde
 COLOR_BTN_ALERT = "#DA3633"   # Rojo
 
-# --- FUENTES ---
+# Fuentes
 FONT_TITULO = ("Fira Code", 20, "bold")
 FONT_SUBTITULO = ("Fira Code", 10)
 FONT_TEXTO = ("Fira Code", 11)
 FONT_BOTON = ("Fira Code", 11, "bold")
 FONT_CONSOLA = ("Fira Code", 9)
 
+# Clase para poder redondear los botones
 class BotonRedondo(tk.Canvas):
     def __init__(self, parent, width, height, radius, text, command=None, bg_color=COLOR_BTN_OFF, fg_color=COLOR_TEXTO):
         super().__init__(parent, width=width, height=height, bg=COLOR_FONDO, highlightthickness=0)

@@ -2,18 +2,17 @@ import tkinter as tk
 from tkinter import scrolledtext, messagebox
 import socket
 import threading
-import json
 import sys
-from datetime import datetime
 import comun
 
-# --- PALETA DE COLORES (Dark Theme) ---
+# --- PALETA DE COLORES ---
 COLOR_FONDO = "#1E1E1E"
 COLOR_CHAT_BG = "#111111"
 COLOR_TEXTO = "#F0F0F0"
-COLOR_PROPIO = "#007ACC"    # Azul para mis mensajes
-COLOR_AJENO = "#333333"     # Gris para otros
-COLOR_SISTEMA = "#238636"   # Verde para mensajes del server
+COLOR_PROPIO = "#007ACC"
+COLOR_AJENO = "#333333"
+COLOR_SISTEMA = "#238636"
+COLOR_ERROR = "#DA3633"
 COLOR_BTN = "#2D2D2D"
 COLOR_BTN_HOVER = "#3E3E3E"
 FONT_MAIN = ("Fira Code", 11)
@@ -26,8 +25,6 @@ class BotonRedondo(tk.Canvas):
         self.bg_color = bg_color
         self.fg_color = fg_color
         self.hover_color = COLOR_BTN_HOVER
-        self.text_str = text
-        self.radius = radius
         self.state = "normal"
         self.rect = self._draw_rounded_rect(2, 2, width-2, height-2, radius, self.bg_color)
         self.text_id = self.create_text(width/2, height/2, text=text, fill=self.fg_color, font=FONT_BOLD)
@@ -56,9 +53,10 @@ class ClienteGUI:
         self.sock = None
         self.es_tcp = True
         self.nombre = ""
+        self.target_ip = ""
+        self.proto_str = ""
         self.conectado = False
         
-        # Iniciar en pantalla de LOGIN
         self.construir_login()
 
     def construir_login(self):
@@ -68,22 +66,15 @@ class ClienteGUI:
         tk.Label(self.frame_login, text="INGRESAR AL CHAT", font=("Fira Code", 18, "bold"), 
                  bg=COLOR_FONDO, fg=COLOR_TEXTO).pack(pady=(0, 30))
 
-        # Nombre
         tk.Label(self.frame_login, text="Nombre de Usuario:", font=FONT_MAIN, bg=COLOR_FONDO, fg="#AAAAAA").pack(anchor="w")
         self.entry_nombre = tk.Entry(self.frame_login, font=FONT_MAIN, bg="#333333", fg="white", insertbackground="white")
         self.entry_nombre.pack(fill="x", pady=(5, 15))
 
-        # IP
         tk.Label(self.frame_login, text="IP del Servidor:", font=FONT_MAIN, bg=COLOR_FONDO, fg="#AAAAAA").pack(anchor="w")
         self.entry_ip = tk.Entry(self.frame_login, font=FONT_MAIN, bg="#333333", fg="white", insertbackground="white")
-        self.entry_ip.insert(0, "127.0.0.1") # Default localhost
+        self.entry_ip.insert(0, "127.0.0.1")
         self.entry_ip.pack(fill="x", pady=(5, 15))
         
-        # Ayuda IP
-        tk.Label(self.frame_login, text="(Usa 127.0.0.1 si es la misma PC,\no la IP local 192.168.x.x si es otra)", 
-                 font=("Fira Code", 8), bg=COLOR_FONDO, fg="#666666").pack(pady=(0, 15))
-
-        # Protocolo
         tk.Label(self.frame_login, text="Protocolo:", font=FONT_MAIN, bg=COLOR_FONDO, fg="#AAAAAA").pack(anchor="w")
         self.var_proto = tk.StringVar(value="TCP")
         frame_radio = tk.Frame(self.frame_login, bg=COLOR_FONDO)
@@ -94,24 +85,22 @@ class ClienteGUI:
         tk.Radiobutton(frame_radio, text="UDP", variable=self.var_proto, value="UDP", 
                        bg=COLOR_FONDO, fg=COLOR_TEXTO, selectcolor="#000000", font=FONT_MAIN).pack(side=tk.LEFT, padx=10)
 
-        # Botón Conectar
         btn = BotonRedondo(self.frame_login, 200, 50, 20, "CONECTAR", command=self.conectar, bg_color="#238636")
         btn.pack(pady=30)
 
     def construir_chat(self):
-        self.frame_login.destroy() # Borrar login
+        self.frame_login.destroy()
         
         self.frame_chat = tk.Frame(self.root, bg=COLOR_FONDO)
         self.frame_chat.pack(expand=True, fill="both")
         
-        # Header
         header = tk.Frame(self.frame_chat, bg="#111111", height=50)
         header.pack(fill="x")
-        lbl_info = tk.Label(header, text=f"{self.nombre} @ {self.entry_ip.get()} ({self.var_proto.get()})", 
+        
+        lbl_info = tk.Label(header, text=f"{self.nombre} @ {self.target_ip} ({self.proto_str})", 
                             font=FONT_BOLD, bg="#111111", fg=COLOR_TEXTO)
         lbl_info.pack(pady=15)
 
-        # Area Mensajes
         self.txt_chat = scrolledtext.ScrolledText(self.frame_chat, bg=COLOR_CHAT_BG, fg=COLOR_TEXTO, 
                                                   font=FONT_MAIN, bd=0, padx=10, pady=10)
         self.txt_chat.pack(expand=True, fill="both", padx=10, pady=10)
@@ -119,10 +108,10 @@ class ClienteGUI:
         
         self.txt_chat.tag_config("propio", foreground=COLOR_PROPIO)
         self.txt_chat.tag_config("ajeno", foreground="#DDDDDD")
-        self.txt_chat.tag_config("privado", foreground="#E06C75") # Rojo suave
+        self.txt_chat.tag_config("privado", foreground="#E06C75")
         self.txt_chat.tag_config("sistema", foreground=COLOR_SISTEMA)
+        self.txt_chat.tag_config("error", foreground=COLOR_ERROR)
 
-        # Area Input
         frame_input = tk.Frame(self.frame_chat, bg=COLOR_FONDO)
         frame_input.pack(fill="x", padx=10, pady=(0, 20))
 
@@ -132,19 +121,19 @@ class ClienteGUI:
 
         btn_enviar = BotonRedondo(frame_input, 80, 40, 15, "ENVIAR", command=self.enviar_mensaje, bg_color=COLOR_PROPIO)
         btn_enviar.pack(side=tk.RIGHT, padx=(10, 0))
-        
-        # Foco
         self.entry_msg.focus()
 
     def agregar_mensaje(self, usuario, texto, tipo, hora):
         self.txt_chat.config(state=tk.NORMAL)
-        
         tag = "ajeno"
         display_text = f"[{hora}] {usuario}: {texto}"
 
         if tipo == "ERROR":
-            tag = "sistema"
+            tag = "error"
             display_text = f"!!! {texto}"
+        elif tipo == "SISTEMA":
+            tag = "sistema"
+            display_text = f">>> {texto}"
         elif tipo == "PRIVADO":
             tag = "privado"
             display_text = f"[{hora}] (Privado) {usuario}: {texto}"
@@ -159,38 +148,40 @@ class ClienteGUI:
 
     def conectar(self):
         self.nombre = self.entry_nombre.get().strip()
-        target_ip = self.entry_ip.get().strip()
-        proto_str = self.var_proto.get()
+        self.target_ip = self.entry_ip.get().strip()
+        self.proto_str = self.var_proto.get()
 
         if not self.nombre:
             messagebox.showerror("Error", "El nombre no puede estar vacío")
             return
 
-        self.es_tcp = (proto_str == "TCP")
+        self.es_tcp = (self.proto_str == "TCP")
         comun.PROTOCOLO = socket.SOCK_STREAM if self.es_tcp else socket.SOCK_DGRAM
-        comun.HOST = target_ip # Sobreescribimos la IP destino
+        comun.HOST = self.target_ip 
         
         try:
             self.sock = socket.socket(socket.AF_INET, comun.PROTOCOLO)
             if self.es_tcp:
-                self.sock.settimeout(5) # Timeout solo para conectar
-                self.sock.connect((target_ip, comun.PORT))
-                self.sock.settimeout(None) # Quitar timeout
+                self.sock.settimeout(3)
+                self.sock.connect((self.target_ip, comun.PORT))
+                self.sock.settimeout(None)
             
             # Mandar registro
             reg = comun.empaquetar_mensaje("REGISTRO", self.nombre, "Hola")
             if self.es_tcp:
                 self.sock.send(reg)
             else:
-                self.sock.sendto(reg, (target_ip, comun.PORT))
+                self.sock.sendto(reg, (self.target_ip, comun.PORT))
 
-            # Si llegamos aqui, iniciar hilo de escucha y cambiar pantalla
             self.conectado = True
             threading.Thread(target=self.hilo_recibir, daemon=True).start()
             self.construir_chat()
+            
+            # Mensaje de ayuda inicial
+            self.root.after(500, lambda: self.agregar_mensaje("SISTEMA", f"Conectado a {self.target_ip} ({self.proto_str})", "SISTEMA", "--:--"))
 
         except Exception as e:
-            messagebox.showerror("Error de Conexión", f"No se pudo conectar a {target_ip}.\n\nDetalle: {e}")
+            messagebox.showerror("Error de Conexión", f"No se pudo conectar a {self.target_ip}.\n\n{e}")
 
     def hilo_recibir(self):
         while self.conectado:
@@ -200,42 +191,49 @@ class ClienteGUI:
                 else:
                     datos, _ = self.sock.recvfrom(comun.BUFSIZE)
                 
-                if not datos: break
+                if not datos: 
+                    if self.es_tcp: break # TCP cierre normal
+                    else: continue # UDP paquete vacio raro
 
                 msg = comun.desempaquetar_mensaje(datos)
                 if msg:
-                    if msg['tipo'] == "ERROR" and ("llena" in msg['contenido'] or "uso" in msg['contenido']):
+                    if msg['tipo'] == "ERROR" and "llena" in msg['contenido']:
                         self.root.after(0, lambda m=msg: messagebox.showerror("Error", m['contenido']))
+                        self.conectado = False
                         self.root.after(0, self.root.destroy)
                         break
                     
                     hora = msg['fecha'].split(' ')[1]
                     self.root.after(0, lambda u=msg['usuario'], c=msg['contenido'], t=msg['tipo'], h=hora: 
                                     self.agregar_mensaje(u, c, t, h))
-            except:
+            
+            except ConnectionResetError:
+                # ERROR 10054 (Windows UDP): El servidor no está escuchando
+                if not self.es_tcp:
+                    self.root.after(0, lambda: self.agregar_mensaje("SISTEMA", "Servidor inalcanzable. Verifique IP.", "ERROR", "--:--"))
+                else:
+                    break
+            except Exception:
                 break
         
-        # Desconexion
         if self.conectado:
-            self.root.after(0, lambda: messagebox.showinfo("Desconectado", "Se perdió la conexión con el servidor"))
+            self.conectado = False
+            self.root.after(0, lambda: messagebox.showinfo("Desconectado", "Se perdió la conexión."))
             self.root.after(0, self.root.destroy)
 
     def enviar_mensaje(self):
         texto = self.entry_msg.get().strip()
         if not texto: return
-        
         self.entry_msg.delete(0, tk.END)
         
-        # Comandos
         if texto == "/salir":
-            self.root.destroy()
+            self.on_closing()
             return
         
         tipo = "PUBLICO"
         destino = None
         contenido = texto
 
-        # Detectar privado /p usuario mensaje
         if texto.startswith("/p "):
             partes = texto.split(" ", 2)
             if len(partes) >= 3:
@@ -243,7 +241,7 @@ class ClienteGUI:
                 destino = partes[1]
                 contenido = partes[2]
             else:
-                self.agregar_mensaje("SISTEMA", "Uso incorrecto. Usa: /p [usuario] [mensaje]", "ERROR", "00:00")
+                self.agregar_mensaje("SISTEMA", "Uso: /p [usuario] [mensaje]", "ERROR", "00:00")
                 return
 
         paquete = comun.empaquetar_mensaje(tipo, self.nombre, contenido, destino)
@@ -252,13 +250,15 @@ class ClienteGUI:
             if self.es_tcp:
                 self.sock.send(paquete)
             else:
-                self.sock.sendto(paquete, (comun.HOST, comun.PORT))
-        except:
-            self.agregar_mensaje("SISTEMA", "Error enviando mensaje", "ERROR", "00:00")
+                self.sock.sendto(paquete, (self.target_ip, comun.PORT))
+        except Exception as e:
+            self.agregar_mensaje("SISTEMA", f"Error enviando: {e}", "ERROR", "00:00")
 
     def on_closing(self):
         self.conectado = False
-        if self.sock: self.sock.close()
+        try:
+            if self.sock: self.sock.close()
+        except: pass
         self.root.destroy()
 
 if __name__ == "__main__":
