@@ -2,12 +2,13 @@ import socket
 import json
 from datetime import datetime
 
-# --- CONFIGURACIÓN GLOBAL ---
+# --- CONFIGURACION GLOBAL ---
 # Cambia esto a socket.SOCK_DGRAM para UDP o socket.SOCK_STREAM para TCP
 PROTOCOLO = socket.SOCK_STREAM 
 # PROTOCOLO = socket.SOCK_DGRAM
 
-HOST = '127.0.0.1'
+# 0.0.0.0 significa "Escuchar en todas las interfaces de red de esta PC"
+HOST = '0.0.0.0'
 PORT = 5000
 BUFSIZE = 1024
 MAX_CLIENTES = 5

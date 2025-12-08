@@ -6,11 +6,12 @@ import os
 import signal
 import threading
 import queue
+import time
 
 # --- PALETA DE COLORES (MODERNA) ---
 COLOR_FONDO = "#1E1E1E"       # Negro oscuro
 COLOR_TEXTO = "#FFFFFF"       # Blanco puro
-COLOR_SUBTITULO = "#AAAAAA"   # Gris (Igual que "Protocolo")
+COLOR_SUBTITULO = "#AAAAAA"   # Gris
 COLOR_CONSOLA = "#111111"     # Fondo de la consola
 COLOR_BTN_OFF = "#2D2D2D"     # Botón inactivo
 COLOR_BTN_HOVER = "#3E3E3E"   # Hover
@@ -20,7 +21,7 @@ COLOR_BTN_ALERT = "#DA3633"   # Rojo
 
 # --- FUENTES ---
 FONT_TITULO = ("Fira Code", 20, "bold")
-FONT_SUBTITULO = ("Fira Code", 10)  # Letra más chica para el autor
+FONT_SUBTITULO = ("Fira Code", 10)
 FONT_TEXTO = ("Fira Code", 11)
 FONT_BOTON = ("Fira Code", 11, "bold")
 FONT_CONSOLA = ("Fira Code", 9)
@@ -77,11 +78,12 @@ class BotonRedondo(tk.Canvas):
 class GestorChat:
     def __init__(self, root):
         self.root = root
-        self.root.title("Chat TCP/UDP - Gestor de Servidor")
+        self.root.title("Chat TCP/UDP - Ricardo Cervantes")
         self.root.geometry("720x480")
         self.root.configure(bg=COLOR_FONDO)
         
         self.proceso_servidor = None
+        self.proceso_cliente_auto = None
         self.hilo_lectura = None
         self.protocolo = "TCP"
         self.cola_logs = queue.Queue()
@@ -91,11 +93,9 @@ class GestorChat:
         frame_main.pack(fill="both", expand=True, padx=20, pady=10)
 
         # 1. TÍTULO Y AUTOR
-        # Título Grande
         tk.Label(frame_main, text="Chat TCP/UDP", font=FONT_TITULO,
                  bg=COLOR_FONDO, fg=COLOR_TEXTO).pack(pady=(0, 2))
         
-        # Subtítulo (Autor) - Color gris oscuro y letra chica
         tk.Label(frame_main, text="Por: Ricardo Cervantes", font=FONT_SUBTITULO,
                  bg=COLOR_FONDO, fg=COLOR_SUBTITULO).pack(pady=(0, 15))
 
@@ -164,28 +164,53 @@ class GestorChat:
 
     def toggle_servidor(self):
         if self.proceso_servidor is None:
-            # ENCENDER
+            # --- ENCENDER ---
             self.log(f"--- INICIANDO SERVIDOR ({self.protocolo}) ---")
-            cmd = [sys.executable, '-u', 'servidor.py', self.protocolo]
             
+            # 1. Arrancar SERVIDOR (oculto/interno)
+            cmd_serv = [sys.executable, '-u', 'servidor.py', self.protocolo]
             flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
-            self.proceso_servidor = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, creationflags=flags)
+            self.proceso_servidor = subprocess.Popen(cmd_serv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, creationflags=flags)
 
             self.hilo_lectura = threading.Thread(target=self.leer_output_servidor, args=(self.proceso_servidor,), daemon=True)
             self.hilo_lectura.start()
 
+            # 2. Arrancar CLIENTE GUI AUTOMÁTICAMENTE (con el nuevo nombre)
+            self.log("> Abriendo guicliente...")
+            time.sleep(1) # Esperar un segundo
+            
+            # CAMBIO AQUÍ: Nombre del archivo actualizado
+            cmd_cliente = [sys.executable, 'guicliente.py'] 
+            
+            if os.name == 'nt':
+                self.proceso_cliente_auto = subprocess.Popen(cmd_cliente)
+            else:
+                self.proceso_cliente_auto = subprocess.Popen(cmd_cliente)
+
+            # Cambios Visuales
             self.btn_servidor.set_text("APAGAR SERVIDOR")
             self.btn_servidor.set_color(COLOR_BTN_ALERT)
             self.btn_tcp.set_disabled(True)
             self.btn_udp.set_disabled(True)
         else:
-            # APAGAR
-            self.log("--- APAGANDO SERVIDOR ---")
+            # --- APAGAR ---
+            self.log("--- APAGANDO SISTEMA ---")
+            
+            # 1. Matar CLIENTE automático
+            if self.proceso_cliente_auto:
+                self.log("> Cerrando guicliente...")
+                if os.name == 'nt': subprocess.call(['taskkill', '/F', '/T', '/PID', str(self.proceso_cliente_auto.pid)])
+                else: os.kill(self.proceso_cliente_auto.pid, signal.SIGTERM)
+                self.proceso_cliente_auto = None
+
+            # 2. Matar SERVIDOR
             if self.proceso_servidor:
+                self.log("> Deteniendo Servidor...")
                 if os.name == 'nt': subprocess.call(['taskkill', '/F', '/T', '/PID', str(self.proceso_servidor.pid)])
                 else: os.kill(self.proceso_servidor.pid, signal.SIGTERM)
             self.proceso_servidor = None
             
+            # Restaurar interfaz
             self.btn_servidor.set_text("ENCENDER SERVIDOR")
             self.btn_servidor.set_color(COLOR_BTN_ON)
             self.btn_tcp.set_disabled(False)

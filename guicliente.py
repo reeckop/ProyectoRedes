@@ -20,7 +20,6 @@ FONT_MAIN = ("Fira Code", 11)
 FONT_BOLD = ("Fira Code", 11, "bold")
 
 class BotonRedondo(tk.Canvas):
-    """Botón personalizado reutilizado del menú anterior"""
     def __init__(self, parent, width, height, radius, text, command=None, bg_color=COLOR_BTN, fg_color=COLOR_TEXTO):
         super().__init__(parent, width=width, height=height, bg=COLOR_FONDO, highlightthickness=0)
         self.command = command
