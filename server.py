@@ -1,197 +1,128 @@
-"""
-server.py - Servidor del chat TCP/UDP
-Maneja múltiples clientes con hilos
-"""
-
+import socket
 import threading
-from config import PROTOCOL, MAX_CLIENTS, MSG_TYPES
-from protocol import create_server_socket, Message
+import comun
 
-class ChatServer:
-    def __init__(self):
-        self.server_socket = create_server_socket(PROTOCOL)
-        self.clients = {}  # TCP: {conn: username} | UDP: {addr: username}
-        self.clients_lock = threading.Lock()
-        self.running = True
-        print(f"[SERVIDOR] Iniciado en modo {PROTOCOL}")
-        print(f"[SERVIDOR] Máximo de clientes: {MAX_CLIENTS}")
-    
-    def broadcast(self, message, exclude=None):
-        """Envía mensaje a todos los clientes conectados"""
-        with self.clients_lock:
-            if PROTOCOL == 'TCP':
-                for conn, username in list(self.clients.items()):
-                    if conn != exclude:
-                        try:
-                            conn.send(message)
-                        except:
-                            pass
-            else:
-                for addr, username in list(self.clients.items()):
-                    if addr != exclude:
-                        self.server_socket.send_to(message, addr)
-    
-    def send_private(self, message, recipient):
-        """Envía mensaje privado a un usuario específico"""
-        with self.clients_lock:
-            if PROTOCOL == 'TCP':
-                for conn, username in self.clients.items():
-                    if username == recipient:
-                        conn.send(message)
-                        return True
-            else:
-                for addr, username in self.clients.items():
-                    if username == recipient:
-                        self.server_socket.send_to(message, addr)
-                        return True
-        return False
-    
-    def get_user_list(self):
-        """Retorna lista de usuarios conectados"""
-        with self.clients_lock:
-            return list(self.clients.values())
-    
-    def register_client(self, client_id, username):
-        """Registra un nuevo cliente"""
-        with self.clients_lock:
-            if len(self.clients) >= MAX_CLIENTS:
-                return False, "Servidor lleno"
-            if username in self.clients.values():
-                return False, "Usuario ya existe"
-            self.clients[client_id] = username
-            return True, "Registro exitoso"
-    
-    def remove_client(self, client_id):
-        """Elimina un cliente"""
-        with self.clients_lock:
-            if client_id in self.clients:
-                username = self.clients.pop(client_id)
-                return username
-        return None
+# Estructura para guardar clientes: { "nombre_usuario": direccion_o_socket }
+clientes = {}
+lock = threading.Lock()
 
-    def handle_tcp_client(self, client_conn):
-        """Maneja un cliente TCP en un hilo separado"""
-        username = None
-        try:
-            while self.running:
-                msg = client_conn.receive()
-                if not msg:
-                    break
-                
-                if msg.msg_type == MSG_TYPES['REGISTER']:
-                    success, reason = self.register_client(client_conn, msg.sender)
-                    if success:
-                        username = msg.sender
-                        response = Message(MSG_TYPES['REGISTER_OK'], "Servidor", f"Bienvenido {username}!")
-                        client_conn.send(response)
-                        notify = Message(MSG_TYPES['SERVER_MSG'], "Servidor", f"{username} se ha conectado")
-                        self.broadcast(notify, exclude=client_conn)
-                        print(f"[+] {username} conectado. Total: {len(self.clients)}")
-                    else:
-                        response = Message(MSG_TYPES['REGISTER_FAIL'], "Servidor", reason)
-                        client_conn.send(response)
-                
-                elif msg.msg_type == MSG_TYPES['BROADCAST']:
-                    print(f"[BROADCAST] {msg.format_display()}")
-                    self.broadcast(msg)
-                
-                elif msg.msg_type == MSG_TYPES['PRIVATE']:
-                    print(f"[PRIVADO] {msg.sender} -> {msg.recipient}: {msg.content}")
-                    if not self.send_private(msg, msg.recipient):
-                        error = Message(MSG_TYPES['ERROR'], "Servidor", f"Usuario '{msg.recipient}' no encontrado")
-                        client_conn.send(error)
-                    else:
-                        # Enviar copia al remitente
-                        confirm = Message(MSG_TYPES['PRIVATE'], msg.sender, f"[Privado a {msg.recipient}]: {msg.content}")
-                        client_conn.send(confirm)
-                
-                elif msg.msg_type == MSG_TYPES['LIST_USERS']:
-                    users = ", ".join(self.get_user_list())
-                    response = Message(MSG_TYPES['USER_LIST'], "Servidor", f"Conectados: {users}")
-                    client_conn.send(response)
-                
-                elif msg.msg_type == MSG_TYPES['DISCONNECT']:
-                    break
-        
-        except Exception as e:
-            print(f"[ERROR] {e}")
-        finally:
-            if username:
-                self.remove_client(client_conn)
-                notify = Message(MSG_TYPES['SERVER_MSG'], "Servidor", f"{username} se ha desconectado")
-                self.broadcast(notify)
-                print(f"[-] {username} desconectado. Total: {len(self.clients)}")
-            client_conn.close()
+def manejar_mensaje(datos, addr, sock_servidor, es_tcp):
+    """Procesa el mensaje recibido (lógica común para TCP y UDP)."""
+    msg = comun.desempaquetar_mensaje(datos)
+    if not msg: return
 
-    def handle_udp(self):
-        """Maneja todos los clientes UDP en un solo bucle"""
-        print("[SERVIDOR UDP] Esperando mensajes...")
-        while self.running:
-            try:
-                msg, addr = self.server_socket.receive_from()
-                if not msg:
-                    continue
-                
-                if msg.msg_type == MSG_TYPES['REGISTER']:
-                    success, reason = self.register_client(addr, msg.sender)
-                    if success:
-                        response = Message(MSG_TYPES['REGISTER_OK'], "Servidor", f"Bienvenido {msg.sender}!")
-                        self.server_socket.send_to(response, addr)
-                        notify = Message(MSG_TYPES['SERVER_MSG'], "Servidor", f"{msg.sender} se ha conectado")
-                        self.broadcast(notify, exclude=addr)
-                        print(f"[+] {msg.sender} conectado. Total: {len(self.clients)}")
-                    else:
-                        response = Message(MSG_TYPES['REGISTER_FAIL'], "Servidor", reason)
-                        self.server_socket.send_to(response, addr)
-                
-                elif msg.msg_type == MSG_TYPES['BROADCAST']:
-                    print(f"[BROADCAST] {msg.format_display()}")
-                    self.broadcast(msg)
-                
-                elif msg.msg_type == MSG_TYPES['PRIVATE']:
-                    print(f"[PRIVADO] {msg.sender} -> {msg.recipient}: {msg.content}")
-                    if not self.send_private(msg, msg.recipient):
-                        error = Message(MSG_TYPES['ERROR'], "Servidor", f"Usuario '{msg.recipient}' no encontrado")
-                        self.server_socket.send_to(error, addr)
-                    else:
-                        confirm = Message(MSG_TYPES['PRIVATE'], msg.sender, f"[Privado a {msg.recipient}]: {msg.content}")
-                        self.server_socket.send_to(confirm, addr)
-                
-                elif msg.msg_type == MSG_TYPES['LIST_USERS']:
-                    users = ", ".join(self.get_user_list())
-                    response = Message(MSG_TYPES['USER_LIST'], "Servidor", f"Conectados: {users}")
-                    self.server_socket.send_to(response, addr)
-                
-                elif msg.msg_type == MSG_TYPES['DISCONNECT']:
-                    username = self.remove_client(addr)
-                    if username:
-                        notify = Message(MSG_TYPES['SERVER_MSG'], "Servidor", f"{username} se ha desconectado")
-                        self.broadcast(notify)
-                        print(f"[-] {username} desconectado. Total: {len(self.clients)}")
+    tipo = msg['tipo']
+    usuario = msg['usuario']
+    
+    with lock:
+        # 1. REGISTRO
+        if tipo == "REGISTRO":
+            if len(clientes) >= comun.MAX_CLIENTES:
+                error = comun.empaquetar_mensaje("ERROR", "SERVER", "Sala llena.")
+                enviar_datos(sock_servidor, error, addr, es_tcp)
+                return False # Indica desconexión forzada si es TCP
             
-            except Exception as e:
-                print(f"[ERROR UDP] {e}")
+            if usuario in clientes:
+                error = comun.empaquetar_mensaje("ERROR", "SERVER", "Nombre en uso.")
+                enviar_datos(sock_servidor, error, addr, es_tcp)
+                return False
+            
+            # Guardamos el socket (TCP) o la dirección (UDP)
+            clientes[usuario] = addr 
+            print(f"[+] Nuevo usuario registrado: {usuario}")
+            
+            # Avisar a todos
+            broadcast(sock_servidor, "SERVER", f"{usuario} se ha unido.", es_tcp)
+            return True
 
-    def start(self):
-        """Inicia el servidor"""
-        try:
-            if PROTOCOL == 'TCP':
-                print("[SERVIDOR TCP] Esperando conexiones...")
-                while self.running:
-                    client_conn = self.server_socket.accept_client()
-                    print(f"[CONEXIÓN] Nueva conexión desde {client_conn.addr}")
-                    thread = threading.Thread(target=self.handle_tcp_client, args=(client_conn,))
-                    thread.daemon = True
-                    thread.start()
+        # 2. MENSAJE PÚBLICO
+        elif tipo == "PUBLICO":
+            print(f"[Publico] {usuario}: {msg['contenido']}")
+            retransmitir_a_todos(sock_servidor, msg, es_tcp)
+
+        # 3. MENSAJE PRIVADO
+        elif tipo == "PRIVADO":
+            destino = msg['destino']
+            if destino in clientes:
+                print(f"[Privado] {usuario} -> {destino}")
+                payload = comun.empaquetar_mensaje("PRIVADO", usuario, msg['contenido'])
+                enviar_datos(sock_servidor, payload, clientes[destino], es_tcp)
             else:
-                self.handle_udp()
-        except KeyboardInterrupt:
-            print("\n[SERVIDOR] Cerrando...")
-        finally:
-            self.running = False
-            self.server_socket.close()
+                error = comun.empaquetar_mensaje("ERROR", "SERVER", f"Usuario {destino} no encontrado.")
+                enviar_datos(sock_servidor, error, addr, es_tcp)
+    
+    return True
 
+def enviar_datos(sock, datos, destino, es_tcp):
+    """Abstracción de envío."""
+    try:
+        if es_tcp:
+            # En TCP, 'destino' es el objeto socket del cliente
+            destino.send(datos)
+        else:
+            # En UDP, 'destino' es la tupla (ip, puerto)
+            sock.sendto(datos, destino)
+    except:
+        pass
+
+def broadcast(sock, remitente, texto, es_tcp):
+    msg = comun.empaquetar_mensaje("PUBLICO", remitente, texto)
+    for nombre, destino in clientes.items():
+        enviar_datos(sock, msg, destino, es_tcp)
+
+def retransmitir_a_todos(sock, msg_dict, es_tcp):
+    datos = json.dumps(msg_dict).encode('utf-8')
+    for nombre, destino in clientes.items():
+        enviar_datos(sock, datos, destino, es_tcp)
+
+# --- LÓGICA ESPECÍFICA TCP ---
+def cliente_thread_tcp(conn, addr):
+    print(f"[Conexión] {addr}")
+    conectado = True
+    usuario_actual = None
+    
+    while conectado:
+        try:
+            datos = conn.recv(comun.BUFSIZE)
+            if not datos: break
+            
+            # Si es el primer mensaje, esperamos que sea registro y obtenemos el nombre
+            if usuario_actual is None:
+                msg = comun.desempaquetar_mensaje(datos)
+                if msg: usuario_actual = msg['usuario']
+
+            conectado = manejar_mensaje(datos, conn, None, True)
+        except:
+            break
+            
+    # Limpieza al desconectar
+    conn.close()
+    with lock:
+        if usuario_actual and usuario_actual in clientes:
+            del clientes[usuario_actual]
+            print(f"[-] Usuario desconectado: {usuario_actual}")
+
+def iniciar_servidor():
+    es_tcp = (comun.PROTOCOLO == socket.SOCK_STREAM)
+    servidor = socket.socket(socket.AF_INET, comun.PROTOCOLO)
+    servidor.bind((comun.HOST, comun.PORT))
+
+    print(f"--- SERVIDOR INICIADO ({'TCP' if es_tcp else 'UDP'}) ---")
+    print(f"Escuchando en {comun.HOST}:{comun.PORT}")
+
+    if es_tcp:
+        servidor.listen()
+        while True:
+            conn, addr = servidor.accept()
+            # En TCP, cada cliente tiene su propio hilo
+            hilo = threading.Thread(target=cliente_thread_tcp, args=(conn, addr))
+            hilo.start()
+    else:
+        # LÓGICA UDP (Todo en un solo hilo principal generalmente, o cola de mensajes)
+        while True:
+            datos, addr = servidor.recvfrom(comun.BUFSIZE)
+            # En UDP, procesamos el paquete individualmente
+            manejar_mensaje(datos, addr, servidor, False)
 
 if __name__ == "__main__":
-    server = ChatServer()
-    server.start()
+    iniciar_servidor()
