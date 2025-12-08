@@ -105,23 +105,40 @@ def cliente_thread_tcp(conn, addr):
 def iniciar_servidor():
     es_tcp = (comun.PROTOCOLO == socket.SOCK_STREAM)
     servidor = socket.socket(socket.AF_INET, comun.PROTOCOLO)
-    servidor.bind((comun.HOST, comun.PORT))
+    
+    # Opción para permitir reiniciar el servidor rápido sin error "Address already in use"
+    servidor.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    
+    try:
+        servidor.bind((comun.HOST, comun.PORT))
+    except Exception as e:
+        print(f"!!! Error al iniciar servidor: {e}")
+        return
+
+    # Obtener la IP local real para mostrarla
+    # (El truco es conectarse a una IP pública sin enviar nada, para saber nuestra IP de salida)
+    try:
+        s_temp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s_temp.connect(("8.8.8.8", 80))
+        ip_local = s_temp.getsockname()[0]
+        s_temp.close()
+    except:
+        ip_local = "127.0.0.1"
 
     print(f"--- SERVIDOR INICIADO ({'TCP' if es_tcp else 'UDP'}) ---")
-    print(f"Escuchando en {comun.HOST}:{comun.PORT}")
+    print(f"Escuchando en IP: {ip_local}")  # <--- ESTA ES LA IP QUE NECESITA EL CLIENTE
+    print(f"Puerto: {comun.PORT}")
+    print(f"Esperando conexiones...")
 
     if es_tcp:
         servidor.listen()
         while True:
             conn, addr = servidor.accept()
-            # En TCP, cada cliente tiene su propio hilo
             hilo = threading.Thread(target=cliente_thread_tcp, args=(conn, addr))
             hilo.start()
     else:
-        # LÓGICA UDP (Todo en un solo hilo principal generalmente, o cola de mensajes)
         while True:
             datos, addr = servidor.recvfrom(comun.BUFSIZE)
-            # En UDP, procesamos el paquete individualmente
             manejar_mensaje(datos, addr, servidor, False)
 
 if __name__ == "__main__":
